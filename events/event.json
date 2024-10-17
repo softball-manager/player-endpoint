@@ -2,7 +2,7 @@
     "body": "{\"name\": \"Test Player\", \"positions\": [\"2B\", \"3B\"], \"extraField\": \"test\"}",
     "resource": "/player",
     "path": "/player",
-    "httpMethod": "PUT",
+    "httpMethod": "POST",
     "isBase64Encoded": false,
     "queryStringParameters": null,
     "pathParameters": null,
@@ -48,7 +48,7 @@
       },
       "path": "/dev/player",
       "resourcePath": "/player",
-      "httpMethod": "PUT",
+      "httpMethod": "POST",
       "apiId": "1234567890",
       "protocol": "HTTP/1.1"
     }

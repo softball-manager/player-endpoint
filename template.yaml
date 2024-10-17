@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  softball-manager-api-put-player
+  softball-manager-api-player-endpoint
 
-  Sample SAM Template for softball-manager-api-put-player
+  Sample SAM Template for softball-manager-api-player-endpoint
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
@@ -26,11 +26,21 @@ Resources:
       Architectures:
       - x86_64
       Events:
-        CatchAll:
+        GetPlayer:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /player/{pid}
+            Method: GET
+        UpdatePlayer:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /player/{pid}
+            Method: POST
+        CreatePlayer:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
           Properties:
             Path: /player/
-            Method: PUT
+            Method: POST
       Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
           PLAYERTABLENAME: player-table-local

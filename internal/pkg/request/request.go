@@ -2,20 +2,46 @@ package request
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-playground/validator/v10"
+	"github.com/softball-manager/common/pkg/dynamo"
 )
 
-type Request struct {
+type CreatePlayerRequest struct {
 	Name      string   `json:"name" validate:"required"`
 	Positions []string `json:"positions"`
 }
 
-func ValidateRequest(request events.APIGatewayProxyRequest) (*Request, error) {
-	var validRequest Request
+var (
+	validPidRegex = fmt.Sprintf(`^%s[a-zA-Z0-9-]+$`, dynamo.PlayerIDPrefix)
+)
 
-	err := json.Unmarshal([]byte(request.Body), &validRequest)
+func ValidatePathParameters(request events.APIGatewayProxyRequest) (string, error) {
+	switch len(request.PathParameters) {
+	case 0:
+		return "", nil
+	case 1:
+		if pid, found := request.PathParameters["pid"]; found {
+			validFormat := regexp.MustCompile(validPidRegex).MatchString(pid)
+			if !validFormat {
+				return "", errors.New("pid is not formatted correctly")
+			}
+			return pid, nil
+		}
+		return "", errors.New("invalid path parameters")
+	default:
+		return "", errors.New("too many path parameters provided")
+	}
+}
+
+func ValidateCreatePlayerRequest(requestBody string) (*CreatePlayerRequest, error) {
+	var validRequest CreatePlayerRequest
+
+	err := json.Unmarshal([]byte(requestBody), &validRequest)
 	if err != nil {
 		return nil, err
 	}

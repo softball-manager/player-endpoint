@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"softball-manager/player-endpoint/internal/pkg/appconfig"
+	"softball-manager/player-endpoint/internal/appconfig"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"

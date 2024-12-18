@@ -18,3 +18,6 @@ invoke: sam-build
 	
 start-api: sam-build
 	sam local start-api
+
+local-atdd: 
+	cd atdd && go test

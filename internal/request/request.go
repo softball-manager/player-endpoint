@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-playground/validator/v10"
@@ -17,7 +18,8 @@ type CreatePlayerRequest struct {
 }
 
 var (
-	validPidRegex = fmt.Sprintf(`^%s[a-zA-Z0-9-]+$`, dynamo.PlayerIDPrefix)
+	playerIDPathParameterPrefix = "Player%23"
+	validPidRegex               = fmt.Sprintf(`^%s[a-zA-Z0-9-]+$`, dynamo.PlayerIDPrefix)
 )
 
 func ValidatePathParameters(request events.APIGatewayProxyRequest) (string, error) {
@@ -26,6 +28,7 @@ func ValidatePathParameters(request events.APIGatewayProxyRequest) (string, erro
 		return "", nil
 	case 1:
 		if pid, found := request.PathParameters["pid"]; found {
+			pid = strings.Replace(pid, playerIDPathParameterPrefix, dynamo.PlayerIDPrefix, 1)
 			validFormat := regexp.MustCompile(validPidRegex).MatchString(pid)
 			if !validFormat {
 				return "", errors.New("pid is not formatted correctly")

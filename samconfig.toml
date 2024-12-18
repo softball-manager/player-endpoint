@@ -4,7 +4,7 @@ version = 0.1
 
 [default]
 [default.global.parameters]
-stack_name = "softball-manager-api"
+stack_name = "softball-manager-player-endpoint"
 
 [default.build.parameters]
 parallel = true
@@ -26,6 +26,31 @@ watch = true
 
 [default.local_start_api.parameters]
 warm_containers = "EAGER"
+parameter_overrides="Env=local"
 
 [default.local_start_lambda.parameters]
 warm_containers = "EAGER"
+parameter_overrides="Env=local"
+
+[dev]
+[dev.global.parameters]
+stack_name = "softball-manager-player-endpoint-dev"
+parameter_overrides="Env=dev"
+
+[dev.build.parameters]
+parallel = true
+
+[dev.validate.parameters]
+lint = true
+
+[dev.deploy.parameters]
+capabilities = ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"]
+confirm_changeset = true
+resolve_s3 = true
+resolve_image_repos = true
+
+[dev.package.parameters]
+resolve_s3 = true
+
+[dev.sync.parameters]
+watch = true

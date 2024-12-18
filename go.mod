@@ -10,7 +10,7 @@ require (
 	github.com/cucumber/godog v0.15.0
 	github.com/go-playground/validator/v10 v10.22.1
 	github.com/google/uuid v1.6.0
-	github.com/softball-manager/common v1.0.3
+	github.com/softball-manager/common v1.0.4
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/zap v1.27.0
 )

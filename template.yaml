@@ -1,10 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  softball-manager-api-player-endpoint
+  softball-manager-api-create-player
 
-  Sample SAM Template for softball-manager-api-player-endpoint
+  Sample SAM Template for softball-manager-api-create-player
 
+Parameters:
+  Env:
+    Type: String
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
@@ -15,11 +18,56 @@ Globals:
     LoggingConfig:
       LogFormat: JSON
 Resources:
-  SoftballManagerFunction:
+  PlayerEndpointDynamoPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub DynamoDBPlayerTableUsers-${Env}
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:BatchGetItem
+          - dynamodb:BatchWriteItem
+          - dynamodb:ConditionCheckItem
+          - dynamodb:PutItem
+          - dynamodb:DescribeTable
+          - dynamodb:DeleteItem
+          - dynamodb:GetItem
+          - dynamodb:Scan
+          - dynamodb:Query
+          - dynamodb:UpdateItem
+          Resource: !Sub arn:aws:dynamodb:${AWS::Region}:658340567265:table/player-table-${Env}
+      Roles:
+      - Ref: PlayerEndpointRole
+    Metadata:
+      SamResourceId: PlayerEndpointDynamoPolicy
+  PlayerEndpointRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub PlayerEndpointRole-${Env}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      SamResourceId: PlayerEndpointRole
+  SoftballManagerPlayerEndpointFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Metadata:
       BuildMethod: go1.x
+      SamResourceId: SoftballManagerPlayerEndpointFunction
     Properties:
+      FunctionName: softball-manager-player-endpoint
+      Role: !GetAtt PlayerEndpointRole.Arn
       CodeUri: function.zip
       Handler: bootstrap
       Runtime: provided.al2
@@ -43,13 +91,13 @@ Resources:
             Method: POST
       Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
-          PLAYER_TABLE_NAME: player-table-local
+          ENV: !Ref Env
+          PLAYER_TABLE_NAME: !Sub player-table-${Env}
 
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
     Properties:
-      Name:
-        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+      Name: !Sub ApplicationInsights-SAM-${AWS::StackName}
       ResourceQuery:
         Type: CLOUDFORMATION_STACK_1_0
   ApplicationInsightsMonitoring:
@@ -62,12 +110,12 @@ Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  SoftballManagerAPI:
+  SoftballManagerPlayerEndpoint:
     Description: API Gateway endpoint URL for Prod environment for First Function
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/player/"
-  SoftballManagerFunction:
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Env}/player/"
+  SoftballManagerPlayerEndpointFunction:
     Description: First Lambda Function ARN
-    Value: !GetAtt SoftballManagerFunction.Arn
-  SoftballManagerFunctionIamRole:
+    Value: !GetAtt SoftballManagerPlayerEndpointFunction.Arn
+  SoftballManagerPlayerEndpointFunctionIamRole:
     Description: Implicit IAM Role created for Softball Manager Function
-    Value: !GetAtt SoftballManagerFunction.Arn
+    Value: !GetAtt SoftballManagerPlayerEndpointFunction.Arn

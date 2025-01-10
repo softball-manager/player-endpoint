@@ -24,3 +24,7 @@ deploy-dev: sam-build
 
 local-atdd: 
 	cd atdd && go test
+
+test:
+	go test -coverprofile cover.out ./internal/...
+	go tool cover -html=cover.out

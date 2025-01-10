@@ -59,6 +59,11 @@ func (r *Repository) PutPlayer(pid string, name string, positions []string) erro
 	return nil
 }
 
+func (r *Repository) UpdatePlayer(pid string, name string, positions []string) error {
+	// TODO
+	return nil
+}
+
 func (r *Repository) GetPlayer(pid string) (player.Player, error) {
 	r.logger.Info("getting item from db", zap.Any(log.PlayerIDLogKey, pid))
 	result, err := r.Client.GetItem(r.Ctx, &dynamodb.GetItemInput{

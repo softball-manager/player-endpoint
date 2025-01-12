@@ -7,7 +7,6 @@ import (
 	"softball-manager/player-endpoint/internal/appconfig"
 	"softball-manager/player-endpoint/internal/repository"
 	"softball-manager/player-endpoint/internal/request"
-	"softball-manager/player-endpoint/internal/response"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -17,6 +16,7 @@ import (
 	"github.com/softball-manager/common/pkg/awsconfig"
 	"github.com/softball-manager/common/pkg/dynamo"
 	"github.com/softball-manager/common/pkg/log"
+	"github.com/softball-manager/common/pkg/response"
 	"go.uber.org/zap"
 )
 
@@ -103,7 +103,7 @@ func handleUpdatePlayer(ctx context.Context, pid string, requestBody string) (ev
 		return response.CreateInternalServerErrorResponse(), nil
 	}
 
-	return response.CreateSuccesfulUpdatePlayerResponse(), nil
+	return response.CreateSuccesfulUpdateResponse(), nil
 }
 
 func handleGetPlayer(ctx context.Context, pid string) (events.APIGatewayProxyResponse, error) {
@@ -121,7 +121,7 @@ func handleGetPlayer(ctx context.Context, pid string) (events.APIGatewayProxyRes
 		return response.CreateResourceNotFoundResponse(), nil
 	}
 
-	return response.CreateSuccessfulGetPlayerResponse(p), nil
+	return response.CreateSuccessfulGetResponse(p), nil
 }
 
 func main() {

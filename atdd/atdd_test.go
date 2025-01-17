@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"reflect"
 	"testing"
 
 	"softball-manager/player-endpoint/internal/request"
@@ -30,25 +32,21 @@ const (
 	devUrl         = "TODO"
 )
 
-var (
-	pidReplacement = "{{pid}}"
-
-	requestFilePath          = "./resources/requests/"
-	expectedResponseFilePath = "./resources/expectedResponses/"
-)
-
 type Feature struct {
 	env                string
 	tableName          string
 	basePlayerEndpoint string
-	pid                string
 
 	db *dynamodb.Client
 
-	createPlayerRequest     *request.CreatePlayerRequest
-	createPlayerResponse    *response.SuccessfulCreateResponse
-	createPlayerHttpRequest *http.Request
-	statusCode              int
+	createPlayerRequest  *request.CreatePlayerRequest
+	createPlayerResponse *response.SuccessfulCreateResponse
+	getPlayerResponse    *player.Player
+
+	statusCode      int
+	pid             string
+	playerName      string
+	playerPositions []string
 }
 
 func TestFeatures(t *testing.T) {
@@ -72,9 +70,9 @@ func TestFeatures(t *testing.T) {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	f := Feature{
-		createPlayerRequest:     &request.CreatePlayerRequest{},
-		createPlayerResponse:    &response.SuccessfulCreateResponse{},
-		createPlayerHttpRequest: &http.Request{},
+		createPlayerRequest:  &request.CreatePlayerRequest{},
+		createPlayerResponse: &response.SuccessfulCreateResponse{},
+		getPlayerResponse:    &player.Player{},
 	}
 
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -106,8 +104,15 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	ctx.Given(`^I want to create a player with the name "([^"]*)"$`, f.iWantToCreateAPlayerWithName)
 	ctx.Given(`^the player plays the following positions$`, f.thePlayerPlaysTheFollowingPositions)
+	ctx.Given(`^there is a player with the name "([^"]*)" who plays$`, f.thereIsAPlayerWithTheNameWhoPlays)
+
 	ctx.When(`^I submit a request to create the player$`, f.iSubmitARequestToCreateThePlayer)
+	ctx.When(`^I submit a request to get the player$`, f.iSubmitARequestToGetThePlayer)
+
 	ctx.Then(`^the new player item exists in the database$`, f.theNewPlayerItemExistsInTheDatabase)
+	ctx.Then(`^I receive a successful response$`, f.iReceiveASuccessfulResponse)
+	ctx.Then(`^I receive a bad request response$`, f.iReceiveABadRequestResponse)
+	ctx.Then(`^the get response body is validated$`, f.theGetResponseBodyIsValidated)
 
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 		if f.pid == "" {
@@ -132,15 +137,45 @@ func (f *Feature) iWantToCreateAPlayerWithName(name string) error {
 }
 
 func (f *Feature) thePlayerPlaysTheFollowingPositions(table *godog.Table) error {
-	if table.Rows[0].Cells[0].Value != "Positions" {
-		return errors.New("invalid header value | expected \"Positions\"")
+	positions, err := readPositionsTable(table)
+	if err != nil {
+		return err
 	}
 
-	f.createPlayerRequest.Positions = make([]string, len(table.Rows)-1)
-	for i, row := range table.Rows[1:] {
-		f.createPlayerRequest.Positions[i] = row.Cells[0].Value
+	f.createPlayerRequest.Positions = positions
+	return nil
+}
+
+func (f *Feature) thereIsAPlayerWithTheNameWhoPlays(ctx context.Context, name string, table *godog.Table) error {
+	positions, err := readPositionsTable(table)
+	if err != nil {
+		return nil
 	}
 
+	pid := "Player#GetATDDTest"
+	p := player.Player{
+		PK:        pid,
+		SK:        pid,
+		Name:      name,
+		Positions: positions,
+	}
+
+	av, err := attributevalue.MarshalMap(p)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(f.tableName),
+		Item:      av,
+	})
+	if err != nil {
+		return err
+	}
+
+	f.pid = pid
+	f.playerName = name
+	f.playerPositions = positions
 	return nil
 }
 
@@ -171,12 +206,52 @@ func (f *Feature) iSubmitARequestToCreateThePlayer(ctx context.Context) error {
 	}
 
 	f.statusCode = resp.StatusCode
-	f.pid = f.createPlayerResponse.ID
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusOK, resp.StatusCode)
+	return nil
+}
+
+func (f *Feature) iSubmitARequestToGetThePlayer(ctx context.Context) error {
+	getUrl := fmt.Sprintf("%s%s", f.basePlayerEndpoint, url.QueryEscape(f.pid))
+	getRequest, err := http.NewRequest(http.MethodGet, getUrl, bytes.NewBuffer([]byte{}))
+	if err != nil {
+		return err
 	}
 
+	client := &http.Client{}
+	resp, err := client.Do(getRequest)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	dec := json.NewDecoder(resp.Body)
+	err = dec.Decode(f.getPlayerResponse)
+	if err != nil {
+		return err
+	}
+
+	f.statusCode = resp.StatusCode
+	return nil
+}
+
+func (f *Feature) iReceiveASuccessfulResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusOK, f.statusCode)
+	}
+
+	if !reflect.DeepEqual(*f.createPlayerRequest, request.CreatePlayerRequest{}) {
+		f.pid = f.createPlayerResponse.ID
+		f.playerName = f.createPlayerRequest.Name
+		f.playerPositions = f.createPlayerRequest.Positions
+	}
+
+	return nil
+}
+
+func (f *Feature) iReceiveABadRequestResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusBadRequest {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusBadRequest, f.statusCode)
+	}
 	return nil
 }
 
@@ -184,11 +259,34 @@ func (f *Feature) theNewPlayerItemExistsInTheDatabase(ctx context.Context) error
 	expectedPlayer := player.Player{
 		PK:        f.pid,
 		SK:        f.pid,
-		Name:      f.createPlayerRequest.Name,
-		Positions: f.createPlayerRequest.Positions,
+		Name:      f.playerName,
+		Positions: f.playerPositions,
 		Stats:     []player.Stats{},
 	}
 
+	actualPlayer, err := f.getPlayerFromDB(ctx)
+	if err != nil {
+		return err
+	}
+
+	assert.Equal(godog.T(ctx), expectedPlayer, actualPlayer, "the retrieved item does not equal the expected item")
+
+	return nil
+}
+
+func (f *Feature) theGetResponseBodyIsValidated(ctx context.Context) error {
+	expectedPlayer := player.Player{
+		PK:        f.pid,
+		SK:        f.pid,
+		Name:      f.playerName,
+		Positions: f.playerPositions,
+	}
+
+	assert.Equal(godog.T(ctx), expectedPlayer, *f.getPlayerResponse, "the retrieved item does not equal the expected item")
+	return nil
+}
+
+func (f *Feature) getPlayerFromDB(ctx context.Context) (player.Player, error) {
 	result, err := f.db.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(f.tableName),
 		Key: map[string]types.AttributeValue{
@@ -197,16 +295,27 @@ func (f *Feature) theNewPlayerItemExistsInTheDatabase(ctx context.Context) error
 		},
 	})
 	if err != nil {
-		return err
+		return player.Player{}, err
 	}
 
 	var actualPlayer player.Player
 	err = attributevalue.UnmarshalMap(result.Item, &actualPlayer)
 	if err != nil {
-		return err
+		return player.Player{}, err
 	}
 
-	assert.Equal(godog.T(ctx), expectedPlayer, actualPlayer, "the retrieve item does not equal the expected item")
+	return actualPlayer, nil
+}
 
-	return nil
+func readPositionsTable(table *godog.Table) ([]string, error) {
+	if table.Rows[0].Cells[0].Value != "Positions" {
+		return []string{}, errors.New("invalid header value | expected \"Positions\"")
+	}
+
+	positions := make([]string, len(table.Rows)-1)
+	for i, row := range table.Rows[1:] {
+		positions[i] = row.Cells[0].Value
+	}
+
+	return positions, nil
 }

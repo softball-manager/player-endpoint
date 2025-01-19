@@ -105,6 +105,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Given(`^I want to create a player with the name "([^"]*)"$`, f.iWantToCreateAPlayerWithName)
 	ctx.Given(`^the player plays the following positions$`, f.thePlayerPlaysTheFollowingPositions)
 	ctx.Given(`^there is a player with the name "([^"]*)" who plays$`, f.thereIsAPlayerWithTheNameWhoPlays)
+	ctx.Given(`^there is a player with the name "([^"]*)" who has no defined position$`, f.thereIsAPlayerWithTheNameWhoHasNoDefinedPosition)
 
 	ctx.When(`^I submit a request to create the player$`, f.iSubmitARequestToCreateThePlayer)
 	ctx.When(`^I submit a request to get the player$`, f.iSubmitARequestToGetThePlayer)
@@ -112,6 +113,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Then(`^the new player item exists in the database$`, f.theNewPlayerItemExistsInTheDatabase)
 	ctx.Then(`^I receive a successful response$`, f.iReceiveASuccessfulResponse)
 	ctx.Then(`^I receive a bad request response$`, f.iReceiveABadRequestResponse)
+	ctx.Then(`^I receive a not found response$`, f.iReceiveNotFoundResponse)
 	ctx.Then(`^the get response body is validated$`, f.theGetResponseBodyIsValidated)
 
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -160,15 +162,7 @@ func (f *Feature) thereIsAPlayerWithTheNameWhoPlays(ctx context.Context, name st
 		Positions: positions,
 	}
 
-	av, err := attributevalue.MarshalMap(p)
-	if err != nil {
-		return err
-	}
-
-	_, err = f.db.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(f.tableName),
-		Item:      av,
-	})
+	err = f.putPlayerInDB(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -176,6 +170,26 @@ func (f *Feature) thereIsAPlayerWithTheNameWhoPlays(ctx context.Context, name st
 	f.pid = pid
 	f.playerName = name
 	f.playerPositions = positions
+	return nil
+}
+
+func (f *Feature) thereIsAPlayerWithTheNameWhoHasNoDefinedPosition(ctx context.Context, name string) error {
+	pid := "Player#GetATDDTestNoPositions"
+	p := player.Player{
+		PK:        pid,
+		SK:        pid,
+		Name:      name,
+		Positions: []string{},
+	}
+
+	err := f.putPlayerInDB(ctx, p)
+	if err != nil {
+		return err
+	}
+
+	f.pid = pid
+	f.playerName = name
+	f.playerPositions = []string{}
 	return nil
 }
 
@@ -255,6 +269,13 @@ func (f *Feature) iReceiveABadRequestResponse(ctx context.Context) error {
 	return nil
 }
 
+func (f *Feature) iReceiveNotFoundResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusNotFound {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusNotFound, f.statusCode)
+	}
+	return nil
+}
+
 func (f *Feature) theNewPlayerItemExistsInTheDatabase(ctx context.Context) error {
 	expectedPlayer := player.Player{
 		PK:        f.pid,
@@ -305,6 +326,23 @@ func (f *Feature) getPlayerFromDB(ctx context.Context) (player.Player, error) {
 	}
 
 	return actualPlayer, nil
+}
+
+func (f *Feature) putPlayerInDB(ctx context.Context, p player.Player) error {
+	av, err := attributevalue.MarshalMap(p)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(f.tableName),
+		Item:      av,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func readPositionsTable(table *godog.Table) ([]string, error) {

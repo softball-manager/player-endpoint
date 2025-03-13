@@ -1,6 +1,7 @@
 package request
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,11 @@ import (
 
 type CreatePlayerRequest struct {
 	Name      string   `json:"name" validate:"required"`
+	Positions []string `json:"positions"`
+}
+
+type UpdatePlayerRequest struct {
+	Name      string   `json:"name"`
 	Positions []string `json:"positions"`
 }
 
@@ -44,7 +50,27 @@ func ValidatePathParameters(request events.APIGatewayProxyRequest) (string, erro
 func ValidateCreatePlayerRequest(requestBody string) (*CreatePlayerRequest, error) {
 	var validRequest CreatePlayerRequest
 
-	err := json.Unmarshal([]byte(requestBody), &validRequest)
+	decoder := json.NewDecoder(bytes.NewReader([]byte(requestBody)))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&validRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	validate := validator.New()
+	if err := validate.Struct(&validRequest); err != nil {
+		return nil, err
+	}
+
+	return &validRequest, nil
+}
+
+func ValidateUpdatePlayerRequest(requestBody string) (*UpdatePlayerRequest, error) {
+	var validRequest UpdatePlayerRequest
+
+	decoder := json.NewDecoder(bytes.NewReader([]byte(requestBody)))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&validRequest)
 	if err != nil {
 		return nil, err
 	}

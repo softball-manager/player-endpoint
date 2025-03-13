@@ -7,12 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"strings"
+	"net/url"
+	"reflect"
 	"testing"
 
 	"softball-manager/player-endpoint/internal/request"
-	"softball-manager/player-endpoint/internal/response"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -21,239 +20,33 @@ import (
 	"github.com/cucumber/godog"
 	cfg "github.com/softball-manager/common/pkg/appconfig"
 	"github.com/softball-manager/common/pkg/awsconfig"
+	"github.com/softball-manager/common/pkg/dynamo"
 	"github.com/softball-manager/common/pkg/player"
+	"github.com/softball-manager/common/pkg/response"
 	"github.com/stretchr/testify/assert"
 )
 
-type (
-	dynamoClientKey struct{}
-	envKey          struct{}
-	tableNameKey    struct{}
-	baseUrlKey      struct{}
-	pidKey          struct{}
-	requestKey      struct{}
-	responseKey     struct{}
-	statusCodeKey   struct{}
-)
-
-var (
-	pidReplacement = "{{pid}}"
-
+const (
+	localhost      = "http://localhost"
 	playerEndpoint = "player/"
-
-	requestFilePath          = "./resources/requests/"
-	expectedResponseFilePath = "./resources/expectedResponses/"
+	devUrl         = "TODO"
 )
 
-func beforeScenario(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
-	env := cfg.GetEnvironment()
-	awsConfig, err := awsconfig.GetAWSConfig(ctx, env)
-	if err != nil {
-		return ctx, err
-	}
+type Feature struct {
+	env                string
+	tableName          string
+	basePlayerEndpoint string
 
-	var db *dynamodb.Client
-	if env == cfg.LocalEnv {
-		db = dynamodb.NewFromConfig(awsConfig, func(o *dynamodb.Options) {
-			o.BaseEndpoint = aws.String("http://localhost:8000")
-		})
-	} else {
-		db = dynamodb.NewFromConfig(awsConfig)
-	}
+	db *dynamodb.Client
 
-	ctx = context.WithValue(ctx, envKey{}, env)
-	ctx = context.WithValue(ctx, dynamoClientKey{}, db)
-	ctx = context.WithValue(ctx, tableNameKey{}, fmt.Sprintf("player-table-%s", env))
+	createPlayerRequest  *request.CreatePlayerRequest
+	createPlayerResponse *response.SuccessfulCreateResponse
+	getPlayerResponse    *player.Player
 
-	return ctx, nil
-}
-
-func afterScenario(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-	pid, ok := ctx.Value(pidKey{}).(string)
-	if !ok {
-		return ctx, errors.New("could not retrieve pid from context")
-	}
-
-	db, ok := ctx.Value(dynamoClientKey{}).(*dynamodb.Client)
-	if !ok {
-		return ctx, errors.New("could not retrieve dyanmo client from context")
-	}
-
-	tableName, ok := ctx.Value(tableNameKey{}).(string)
-	if !ok {
-		return ctx, errors.New("could not retrieve table name from context")
-	}
-
-	db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(tableName),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: pid},
-			"sk": &types.AttributeValueMemberS{Value: pid},
-		},
-	})
-
-	return ctx, nil
-}
-
-func createRequest(ctx context.Context, filename string) (context.Context, error) {
-	reqBody, err := os.ReadFile(fmt.Sprintf("%s%s", requestFilePath, filename))
-	if err != nil {
-		return ctx, err
-	}
-
-	env, ok := ctx.Value(envKey{}).(string)
-	if !ok {
-		return ctx, errors.New("could not retrieve env from context")
-	}
-
-	switch env {
-	case cfg.LocalEnv:
-		ctx = context.WithValue(ctx, baseUrlKey{}, "http://localhost:3000/")
-	default:
-		ctx = context.WithValue(ctx, baseUrlKey{}, "http://todo/")
-	}
-
-	ctx = context.WithValue(ctx, requestKey{}, reqBody)
-	return ctx, nil
-}
-
-func makeCreateRequest(ctx context.Context) (context.Context, error) {
-	baseUrl, ok := ctx.Value(baseUrlKey{}).(string)
-	if !ok {
-		return ctx, errors.New("could not retrieve base url from context")
-	}
-	url := fmt.Sprintf("%s%s", baseUrl, playerEndpoint)
-
-	body, ok := ctx.Value(requestKey{}).([]byte)
-	if !ok {
-		return ctx, errors.New("could not retrieve request body from context")
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
-	if err != nil {
-		return ctx, err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return ctx, err
-	}
-	defer resp.Body.Close()
-
-	successfulResp := &response.SuccessfulCreatePlayerResponse{}
-	err = json.NewDecoder(resp.Body).Decode(successfulResp)
-	if err != nil {
-		return ctx, err
-	}
-
-	ctx = context.WithValue(ctx, responseKey{}, successfulResp)
-	ctx = context.WithValue(ctx, statusCodeKey{}, resp.StatusCode)
-	ctx = context.WithValue(ctx, pidKey{}, successfulResp.PID)
-
-	return ctx, nil
-}
-
-func getResponse(ctx context.Context, filename string) error {
-	resp, ok := ctx.Value(responseKey{}).(*response.SuccessfulCreatePlayerResponse)
-	if !ok {
-		return errors.New("could not retrieve response from context")
-	}
-
-	statusCode, ok := ctx.Value(statusCodeKey{}).(int)
-	if !ok {
-		return errors.New("could not retrieve status code from context")
-	}
-
-	pid, ok := ctx.Value(pidKey{}).(string)
-	if !ok {
-		return errors.New("could not retrieve pid from context")
-	}
-
-	expectedResponseBytes, err := os.ReadFile(fmt.Sprintf("%s%s", expectedResponseFilePath, filename))
-	if err != nil {
-		return err
-	}
-
-	expectedResponse := &response.SuccessfulCreatePlayerResponse{}
-	err = json.Unmarshal(expectedResponseBytes, expectedResponse)
-	if err != nil {
-		return err
-	}
-	expectedResponse.PID = strings.ReplaceAll(expectedResponse.PID, pidReplacement, pid)
-
-	assert.Equal(godog.T(ctx), expectedResponse, resp)
-	assert.Equal(godog.T(ctx), http.StatusOK, statusCode, "Expected status: %d | Actual status: %d", http.StatusOK, statusCode)
-
-	return nil
-}
-
-func validateNewPlayerInDB(ctx context.Context) error {
-	reqBytes, ok := ctx.Value(requestKey{}).([]byte)
-	if !ok {
-		return errors.New("could not retrieve request from context")
-	}
-
-	pid, ok := ctx.Value(pidKey{}).(string)
-	if !ok {
-		return errors.New("could not retrieve pid from context")
-	}
-
-	db, ok := ctx.Value(dynamoClientKey{}).(*dynamodb.Client)
-	if !ok {
-		return errors.New("could not retrieve dyanmo client from context")
-	}
-
-	tableName, ok := ctx.Value(tableNameKey{}).(string)
-	if !ok {
-		return errors.New("could not retrieve table name from context")
-	}
-
-	reqBody := &request.CreatePlayerRequest{}
-	err := json.Unmarshal(reqBytes, reqBody)
-	if err != nil {
-		return err
-	}
-
-	expectedPlayer := player.Player{
-		PK:        pid,
-		SK:        pid,
-		Name:      reqBody.Name,
-		Positions: reqBody.Positions,
-		Stats:     []player.Stats{},
-	}
-
-	result, err := db.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(tableName),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: pid},
-			"sk": &types.AttributeValueMemberS{Value: pid},
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	var actualPlayer player.Player
-	err = attributevalue.UnmarshalMap(result.Item, &actualPlayer)
-	if err != nil {
-		return err
-	}
-
-	assert.Equal(godog.T(ctx), expectedPlayer, actualPlayer, "the retrieve item does not equal the expected item")
-
-	return nil
-}
-
-func InitializeScenario(ctx *godog.ScenarioContext) {
-	ctx.Before(beforeScenario)
-
-	ctx.Given(`^I have a post request with body ([a-zA-Z0-9._-]+\.json)$`, createRequest)
-	ctx.When(`^I call the post endpoint to create a player$`, makeCreateRequest)
-	ctx.Then(`^the response should match ([a-zA-Z0-9._-]+\.json)$`, getResponse)
-	ctx.Then(`the new player item exists in the database`, validateNewPlayerInDB)
-
-	ctx.After(afterScenario)
+	statusCode      int
+	pid             string
+	playerName      string
+	playerPositions []string
 }
 
 func TestFeatures(t *testing.T) {
@@ -266,7 +59,301 @@ func TestFeatures(t *testing.T) {
 		},
 	}
 
+	if testing.Short() {
+		t.Skip()
+	}
+
 	if suite.Run() != 0 {
 		t.Fatal("non-zero status returned, failed to run feature tests")
 	}
+}
+
+func InitializeScenario(ctx *godog.ScenarioContext) {
+	f := Feature{
+		createPlayerRequest:  &request.CreatePlayerRequest{},
+		createPlayerResponse: &response.SuccessfulCreateResponse{},
+		getPlayerResponse:    &player.Player{},
+	}
+
+	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+		f.env = cfg.GetEnvironment()
+		awsConfig, err := awsconfig.GetAWSConfig(ctx, f.env)
+		if err != nil {
+			return ctx, err
+		}
+
+		if f.env == cfg.LocalEnv {
+			f.db = dynamodb.NewFromConfig(awsConfig, func(o *dynamodb.Options) {
+				o.BaseEndpoint = aws.String(fmt.Sprintf("%s:8000", localhost))
+			})
+		} else {
+			f.db = dynamodb.NewFromConfig(awsConfig)
+		}
+
+		switch f.env {
+		case cfg.LocalEnv:
+			f.basePlayerEndpoint = fmt.Sprintf("%s:3000/%s", localhost, playerEndpoint)
+		default:
+			f.basePlayerEndpoint = fmt.Sprintf("%s/%s", devUrl, playerEndpoint)
+		}
+
+		f.tableName = fmt.Sprintf("%s-%s", dynamo.PlayerTableNamePrefix, f.env)
+
+		return ctx, nil
+	})
+
+	ctx.Given(`^I want to create a player with the name "([^"]*)"$`, f.iWantToCreateAPlayerWithName)
+	ctx.Given(`^the player plays the following positions$`, f.thePlayerPlaysTheFollowingPositions)
+	ctx.Given(`^there is a player with the name "([^"]*)" who plays$`, f.thereIsAPlayerWithTheNameWhoPlays)
+	ctx.Given(`^there is a player with the name "([^"]*)" who has no defined position$`, f.thereIsAPlayerWithTheNameWhoHasNoDefinedPosition)
+
+	ctx.When(`^I submit a request to create the player$`, f.iSubmitARequestToCreateThePlayer)
+	ctx.When(`^I submit a request to get the player$`, f.iSubmitARequestToGetThePlayer)
+
+	ctx.Then(`^the new player item exists in the database$`, f.theNewPlayerItemExistsInTheDatabase)
+	ctx.Then(`^I receive a successful response$`, f.iReceiveASuccessfulResponse)
+	ctx.Then(`^I receive a bad request response$`, f.iReceiveABadRequestResponse)
+	ctx.Then(`^I receive a not found response$`, f.iReceiveNotFoundResponse)
+	ctx.Then(`^the get response body is validated$`, f.theGetResponseBodyIsValidated)
+
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		if f.pid == "" {
+			return ctx, nil
+		}
+
+		f.db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+			TableName: aws.String(f.tableName),
+			Key: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: f.pid},
+				"sk": &types.AttributeValueMemberS{Value: f.pid},
+			},
+		})
+
+		return ctx, nil
+	})
+}
+
+func (f *Feature) iWantToCreateAPlayerWithName(name string) error {
+	f.createPlayerRequest.Name = name
+	return nil
+}
+
+func (f *Feature) thePlayerPlaysTheFollowingPositions(table *godog.Table) error {
+	positions, err := readPositionsTable(table)
+	if err != nil {
+		return err
+	}
+
+	f.createPlayerRequest.Positions = positions
+	return nil
+}
+
+func (f *Feature) thereIsAPlayerWithTheNameWhoPlays(ctx context.Context, name string, table *godog.Table) error {
+	positions, err := readPositionsTable(table)
+	if err != nil {
+		return nil
+	}
+
+	pid := "Player#GetATDDTest"
+	p := player.Player{
+		PK:        pid,
+		SK:        pid,
+		Name:      name,
+		Positions: positions,
+	}
+
+	err = f.putPlayerInDB(ctx, p)
+	if err != nil {
+		return err
+	}
+
+	f.pid = pid
+	f.playerName = name
+	f.playerPositions = positions
+	return nil
+}
+
+func (f *Feature) thereIsAPlayerWithTheNameWhoHasNoDefinedPosition(ctx context.Context, name string) error {
+	pid := "Player#GetATDDTestNoPositions"
+	p := player.Player{
+		PK:        pid,
+		SK:        pid,
+		Name:      name,
+		Positions: []string{},
+	}
+
+	err := f.putPlayerInDB(ctx, p)
+	if err != nil {
+		return err
+	}
+
+	f.pid = pid
+	f.playerName = name
+	f.playerPositions = []string{}
+	return nil
+}
+
+func (f *Feature) iSubmitARequestToCreateThePlayer(ctx context.Context) error {
+	client := &http.Client{}
+
+	reqBody, err := json.Marshal(f.createPlayerRequest)
+	if err != nil {
+		return err
+	}
+
+	createRequest, err := http.NewRequest(http.MethodPost, f.basePlayerEndpoint, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(createRequest)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	dec := json.NewDecoder(resp.Body)
+	dec.DisallowUnknownFields()
+	err = dec.Decode(f.createPlayerResponse)
+	if err != nil {
+		return err
+	}
+
+	f.statusCode = resp.StatusCode
+
+	return nil
+}
+
+func (f *Feature) iSubmitARequestToGetThePlayer(ctx context.Context) error {
+	getUrl := fmt.Sprintf("%s%s", f.basePlayerEndpoint, url.QueryEscape(f.pid))
+	getRequest, err := http.NewRequest(http.MethodGet, getUrl, bytes.NewBuffer([]byte{}))
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(getRequest)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	dec := json.NewDecoder(resp.Body)
+	err = dec.Decode(f.getPlayerResponse)
+	if err != nil {
+		return err
+	}
+
+	f.statusCode = resp.StatusCode
+	return nil
+}
+
+func (f *Feature) iReceiveASuccessfulResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusOK, f.statusCode)
+	}
+
+	if !reflect.DeepEqual(*f.createPlayerRequest, request.CreatePlayerRequest{}) {
+		f.pid = f.createPlayerResponse.ID
+		f.playerName = f.createPlayerRequest.Name
+		f.playerPositions = f.createPlayerRequest.Positions
+	}
+
+	return nil
+}
+
+func (f *Feature) iReceiveABadRequestResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusBadRequest {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusBadRequest, f.statusCode)
+	}
+	return nil
+}
+
+func (f *Feature) iReceiveNotFoundResponse(ctx context.Context) error {
+	if f.statusCode != http.StatusNotFound {
+		return fmt.Errorf("unexpected status code received | excpected: %v, received: %v", http.StatusNotFound, f.statusCode)
+	}
+	return nil
+}
+
+func (f *Feature) theNewPlayerItemExistsInTheDatabase(ctx context.Context) error {
+	expectedPlayer := player.Player{
+		PK:        f.pid,
+		SK:        f.pid,
+		Name:      f.playerName,
+		Positions: f.playerPositions,
+		Stats:     []player.Stats{},
+	}
+
+	actualPlayer, err := f.getPlayerFromDB(ctx)
+	if err != nil {
+		return err
+	}
+
+	assert.Equal(godog.T(ctx), expectedPlayer, actualPlayer, "the retrieved item does not equal the expected item")
+
+	return nil
+}
+
+func (f *Feature) theGetResponseBodyIsValidated(ctx context.Context) error {
+	expectedPlayer := player.Player{
+		PK:        f.pid,
+		SK:        f.pid,
+		Name:      f.playerName,
+		Positions: f.playerPositions,
+	}
+
+	assert.Equal(godog.T(ctx), expectedPlayer, *f.getPlayerResponse, "the retrieved item does not equal the expected item")
+	return nil
+}
+
+func (f *Feature) getPlayerFromDB(ctx context.Context) (player.Player, error) {
+	result, err := f.db.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(f.tableName),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: f.pid},
+			"sk": &types.AttributeValueMemberS{Value: f.pid},
+		},
+	})
+	if err != nil {
+		return player.Player{}, err
+	}
+
+	var actualPlayer player.Player
+	err = attributevalue.UnmarshalMap(result.Item, &actualPlayer)
+	if err != nil {
+		return player.Player{}, err
+	}
+
+	return actualPlayer, nil
+}
+
+func (f *Feature) putPlayerInDB(ctx context.Context, p player.Player) error {
+	av, err := attributevalue.MarshalMap(p)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(f.tableName),
+		Item:      av,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readPositionsTable(table *godog.Table) ([]string, error) {
+	if table.Rows[0].Cells[0].Value != "Positions" {
+		return []string{}, errors.New("invalid header value | expected \"Positions\"")
+	}
+
+	positions := make([]string, len(table.Rows)-1)
+	for i, row := range table.Rows[1:] {
+		positions[i] = row.Cells[0].Value
+	}
+
+	return positions, nil
 }

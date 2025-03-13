@@ -7,7 +7,6 @@ import (
 	"softball-manager/player-endpoint/internal/appconfig"
 	"softball-manager/player-endpoint/internal/repository"
 	"softball-manager/player-endpoint/internal/request"
-	"softball-manager/player-endpoint/internal/response"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -17,6 +16,7 @@ import (
 	"github.com/softball-manager/common/pkg/awsconfig"
 	"github.com/softball-manager/common/pkg/dynamo"
 	"github.com/softball-manager/common/pkg/log"
+	"github.com/softball-manager/common/pkg/response"
 	"go.uber.org/zap"
 )
 
@@ -74,7 +74,7 @@ func handleCreatePlayer(ctx context.Context, requestBody string) (events.APIGate
 
 	validatedRequest, err := request.ValidateCreatePlayerRequest(requestBody)
 	if err != nil {
-		logger.Error("error validating request", zap.Error(err))
+		logger.Error("error validating create request", zap.Error(err))
 		return response.CreateBadRequestResponse(), nil
 	}
 
@@ -88,7 +88,22 @@ func handleCreatePlayer(ctx context.Context, requestBody string) (events.APIGate
 }
 
 func handleUpdatePlayer(ctx context.Context, pid string, requestBody string) (events.APIGatewayProxyResponse, error) {
-	return response.CreateSuccesfulUpdatePlayerResponse(), nil
+	appCfg.Logger = appCfg.Logger.With(zap.String(log.PlayerIDLogKey, pid))
+	logger := appCfg.GetLogger()
+
+	validatedRequest, err := request.ValidateUpdatePlayerRequest(requestBody)
+	if err != nil {
+		logger.Error("error validating update request", zap.Error(err))
+		return response.CreateBadRequestResponse(), nil
+	}
+
+	err = repo.UpdatePlayer(pid, validatedRequest.Name, validatedRequest.Positions)
+	if err != nil {
+		logger.Error("error updating player in db", zap.Error(err))
+		return response.CreateInternalServerErrorResponse(), nil
+	}
+
+	return response.CreateSuccesfulUpdateResponse(), nil
 }
 
 func handleGetPlayer(ctx context.Context, pid string) (events.APIGatewayProxyResponse, error) {
@@ -106,7 +121,7 @@ func handleGetPlayer(ctx context.Context, pid string) (events.APIGatewayProxyRes
 		return response.CreateResourceNotFoundResponse(), nil
 	}
 
-	return response.CreateSuccessfulGetPlayerResponse(p), nil
+	return response.CreateSuccessfulGetResponse(p), nil
 }
 
 func main() {

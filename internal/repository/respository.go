@@ -13,15 +13,20 @@ import (
 	"go.uber.org/zap"
 )
 
+type DynamodbClientProvider interface {
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+}
+
 type Repository struct {
 	Ctx       context.Context
 	AppConfig *appconfig.AppConfig
-	Client    *dynamodb.Client
+	Client    DynamodbClientProvider
 	TableName string
 	logger    *zap.Logger
 }
 
-func NewRespository(ctx context.Context, cfg *appconfig.AppConfig, client *dynamodb.Client) *Repository {
+func NewRespository(ctx context.Context, cfg *appconfig.AppConfig, client DynamodbClientProvider) *Repository {
 	return &Repository{
 		Ctx:       ctx,
 		AppConfig: cfg,
@@ -56,6 +61,11 @@ func (r *Repository) PutPlayer(pid string, name string, positions []string) erro
 	}
 	r.logger.Info("successfully inserted item")
 
+	return nil
+}
+
+func (r *Repository) UpdatePlayer(pid string, name string, positions []string) error {
+	// TODO
 	return nil
 }
 
